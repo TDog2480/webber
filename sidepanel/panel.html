@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Webber</title>
+  <link rel="stylesheet" href="panel.css" />
+</head>
+<body>
+  <!-- Onboarding (shown when no API key is stored) -->
+  <section id="onboarding" hidden>
+    <div class="onboard-card">
+      <h1>Welcome to Webber</h1>
+      <p>Webber reshapes websites around your workflow. To translate commands
+        it needs an Anthropic API key, stored locally in your browser and used
+        only from the extension's background worker.</p>
+      <label for="api-key-input">Anthropic API key</label>
+      <input id="api-key-input" type="password" placeholder="sk-ant-..." autocomplete="off" />
+      <button id="api-key-save" class="btn">Save key</button>
+      <p class="hint">Get a key at console.anthropic.com → API keys.</p>
+      <p id="onboard-status" class="hint"></p>
+    </div>
+  </section>
+
+  <!-- Main UI -->
+  <section id="main" hidden>
+    <header>
+      <div class="brand">Webber</div>
+      <nav class="tabs" role="tablist">
+        <button class="tab active" data-tab="board" role="tab">Board</button>
+        <button class="tab" data-tab="rules" role="tab">Rules</button>
+        <button class="tab" data-tab="history" role="tab">History</button>
+      </nav>
+    </header>
+
+    <div id="tab-board" class="tab-panel">
+      <div class="toolbar">
+        <span id="board-count" class="muted"></span>
+        <button id="board-clear" class="btn btn-ghost">Clear board</button>
+      </div>
+      <div id="board-empty" class="empty">
+        Nothing extracted yet. Run an <b>extract-to-panel</b> transform (or a
+        mode's defaults) on a page and rows will appear here — one row per
+        product, email, or result. The board persists across navigation and
+        clears when the browser closes.
+      </div>
+      <div class="table-wrap">
+        <table id="board-table" hidden>
+          <thead><tr id="board-head"></tr></thead>
+          <tbody id="board-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="tab-rules" class="tab-panel" hidden>
+      <div id="rules-empty" class="empty">
+        No saved rules yet. Apply a view from the command bar
+        (Ctrl+Shift+W / Alt+W) and click "Save this view".
+      </div>
+      <div id="rules-list"></div>
+    </div>
+
+    <div id="tab-history" class="tab-panel" hidden>
+      <div id="history-empty" class="empty">No pages visited with Webber active yet.</div>
+      <ul id="history-list"></ul>
+    </div>
+
+    <footer>
+      <button id="change-key" class="btn btn-ghost">Change API key</button>
+    </footer>
+  </section>
+
+  <script src="../shared/schema.js"></script>
+  <script src="../shared/storage.js"></script>
+  <script src="panel.js"></script>
+</body>
+</html>

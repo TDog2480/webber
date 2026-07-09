@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "Webber",
+  "version": "0.1.0",
+  "description": "Reshapes any website into your preferred interface and workflow.",
+  "permissions": ["activeTab", "scripting", "storage", "sidePanel"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "action": {
+    "default_title": "Webber — open workflow board"
+  },
+  "side_panel": {
+    "default_path": "sidepanel/panel.html"
+  },
+  "commands": {
+    "toggle-command-bar": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+W",
+        "mac": "Command+Shift+W"
+      },
+      "description": "Toggle the Webber command bar"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": [
+        "shared/schema.js",
+        "shared/storage.js",
+        "content/extractor.js",
+        "content/rule-engine.js",
+        "command-bar/command-bar.js",
+        "content/content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["command-bar/command-bar.css"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

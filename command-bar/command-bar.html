@@ -1,0 +1,17 @@
+<!--
+  Webber command bar — reference markup.
+  The live command bar is built programmatically by command-bar.js inside a
+  Shadow DOM host injected into the page (see build() in command-bar.js);
+  this file documents the structure for reference and testing.
+-->
+<div class="wb-overlay" role="dialog" aria-label="Webber command bar">
+  <div class="wb-bar">
+    <div class="wb-row">
+      <span class="wb-mode" title="Click to switch mode" tabindex="0">Generic</span>
+      <input class="wb-input" type="text" placeholder="Ask Webber to reshape this page..." spellcheck="false" />
+    </div>
+    <div class="wb-chips"></div>
+    <div class="wb-status"></div>
+    <div class="wb-actions"></div>
+  </div>
+</div>

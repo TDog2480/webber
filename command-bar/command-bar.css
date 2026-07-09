@@ -1,0 +1,145 @@
+/* Webber command bar — injected into a shadow root, so these styles never
+   leak into the host page. */
+
+:host {
+  all: initial;
+}
+
+.wb-overlay {
+  position: fixed;
+  top: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2147483647;
+  width: 560px;
+  max-width: calc(100vw - 32px);
+  font: 400 13px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: #f5f5f5;
+}
+
+.wb-bar {
+  background: #0f0f0f;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  padding: 10px;
+}
+
+.wb-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wb-mode {
+  flex: none;
+  cursor: pointer;
+  user-select: none;
+  font: 600 11px/1 system-ui, sans-serif;
+  color: #c7c8ff;
+  background: #1c1c2e;
+  border: 1px solid #6366f1;
+  border-radius: 999px;
+  padding: 5px 10px;
+}
+.wb-mode:hover { background: #26264a; }
+
+.wb-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #f5f5f5;
+  font: 400 14px/1.4 system-ui, sans-serif;
+  padding: 6px 4px;
+}
+.wb-input::placeholder { color: #7a7a7a; }
+
+.wb-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.wb-chips:empty { display: none; }
+
+.wb-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: 500 11px/1 system-ui, sans-serif;
+  color: #e0e0ff;
+  background: #1c1c2e;
+  border: 1px solid #3d3d6b;
+  border-radius: 999px;
+  padding: 4px 6px 4px 10px;
+}
+.wb-chip .wb-saved { color: #6366f1; font-size: 10px; }
+.wb-chip button {
+  all: unset;
+  cursor: pointer;
+  color: #9a9ac0;
+  font: 700 11px/1 system-ui, sans-serif;
+  padding: 1px 4px;
+  border-radius: 50%;
+}
+.wb-chip button:hover { color: #fff; background: #3d3d6b; }
+
+.wb-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.wb-actions:empty { display: none; }
+
+.wb-btn {
+  all: unset;
+  cursor: pointer;
+  font: 600 11px/1 system-ui, sans-serif;
+  color: #fff;
+  background: #6366f1;
+  border-radius: 8px;
+  padding: 7px 12px;
+}
+.wb-btn:hover { background: #575ae8; }
+.wb-btn.wb-secondary {
+  background: transparent;
+  border: 1px solid #3d3d6b;
+  color: #c7c8ff;
+}
+.wb-btn.wb-secondary:hover { background: #1c1c2e; }
+
+.wb-status {
+  margin-top: 8px;
+  font: 400 12px/1.4 system-ui, sans-serif;
+  color: #9a9ac0;
+}
+.wb-status.wb-ok { color: #86efac; }
+.wb-status.wb-err { color: #fca5a5; }
+.wb-status:empty { display: none; }
+
+.wb-save-prompt {
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  background: #161616;
+}
+.wb-save-prompt .wb-q {
+  margin-bottom: 8px;
+  color: #d0d0d0;
+}
+
+.wb-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid #3d3d6b;
+  border-top-color: #6366f1;
+  border-radius: 50%;
+  animation: wb-spin 0.7s linear infinite;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+@keyframes wb-spin { to { transform: rotate(360deg); } }
