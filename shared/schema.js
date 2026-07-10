@@ -75,7 +75,7 @@ const WebberSchema = {
 
 // Storage key helpers (kept as functions so key format lives in one place)
 WebberSchema.keys = {
-  apiKey: 'webber:apiKey',
+  installId: 'webber:installId',
   history: 'webber:history',
   board: 'webber:board',
   rulesForDomain: (domain) => `rules:${domain}`,

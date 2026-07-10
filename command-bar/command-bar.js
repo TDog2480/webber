@@ -14,6 +14,13 @@ const WebberCommandBar = (() => {
   let visible = false;
   let lastRuleName = null; // most recently applied rule (for "Save this view")
 
+  // ---- Build / picker mode state ------------------------------------------
+  let pickerActive = false;
+  let hoverEl = null;    // element currently under the pointer
+  let pickedEl = null;   // element the user clicked to build a rule for
+  let paramsWrap = null; // container for the current op's param controls
+  let paramEls = {};     // refs to the current op's live param controls
+
   // ---- construction -----------------------------------------------------
 
   async function build() {
@@ -39,10 +46,12 @@ const WebberCommandBar = (() => {
             <span class="wb-mode" title="Click to switch mode" tabindex="0"></span>
             <input class="wb-input" type="text"
               placeholder="Ask Webber to reshape this page..." spellcheck="false" />
+            <button class="wb-build" type="button" title="Build a rule by clicking the page">Build</button>
           </div>
           <div class="wb-chips"></div>
           <div class="wb-status"></div>
           <div class="wb-actions"></div>
+          <div class="wb-builder"></div>
         </div>
       </div>`;
 
@@ -50,12 +59,23 @@ const WebberCommandBar = (() => {
       overlay: root.querySelector('.wb-overlay'),
       mode: root.querySelector('.wb-mode'),
       input: root.querySelector('.wb-input'),
+      build: root.querySelector('.wb-build'),
       chips: root.querySelector('.wb-chips'),
       status: root.querySelector('.wb-status'),
       actions: root.querySelector('.wb-actions'),
+      builder: root.querySelector('.wb-builder'),
     };
 
+    // Hover outline: a direct child of the shadow root (sibling of
+    // .wb-overlay), so .wb-overlay's transform never becomes its containing
+    // block for position:fixed.
+    els.outline = document.createElement('div');
+    els.outline.className = 'wb-pick-outline';
+    els.outline.hidden = true;
+    root.appendChild(els.outline);
+
     els.mode.addEventListener('click', cycleMode);
+    els.build.addEventListener('click', togglePicker);
     els.input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && els.input.value.trim()) submit(els.input.value.trim());
       if (e.key === 'Escape') hide();
@@ -190,6 +210,328 @@ const WebberCommandBar = (() => {
     }
   }
 
+  // ---- Build / picker mode -----------------------------------------------------
+
+  function togglePicker() {
+    if (pickerActive) { exitPicker(); setStatus('Build mode off.', ''); }
+    else enterPicker();
+  }
+
+  function enterPicker() {
+    pickerActive = true;
+    els.build.classList.add('wb-active');
+    setStatus('Build mode — hover, then click an element. Esc to cancel.', '');
+    // all capture-phase, on document, so we intercept before the page:
+    document.addEventListener('mousemove', onPickMove, true);
+    document.addEventListener('mousedown', onPickDown, true);
+    document.addEventListener('click', onPickClick, true);
+    document.addEventListener('keydown', onPickKey, true);
+  }
+
+  function exitPicker() {
+    pickerActive = false;
+    els.build.classList.remove('wb-active');
+    els.outline.hidden = true;
+    els.builder.textContent = '';
+    hoverEl = null; pickedEl = null;
+    document.removeEventListener('mousemove', onPickMove, true);
+    document.removeEventListener('mousedown', onPickDown, true);
+    document.removeEventListener('click', onPickClick, true);
+    document.removeEventListener('keydown', onPickKey, true);
+  }
+
+  function onPickMove(e) {
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    if (!el || el === host || el.closest?.('[data-webber-ui]')) {
+      els.outline.hidden = true;
+      hoverEl = null;
+      return;
+    }
+    hoverEl = el;
+    const r = el.getBoundingClientRect();
+    els.outline.style.left = `${r.left}px`;
+    els.outline.style.top = `${r.top}px`;
+    els.outline.style.width = `${r.width}px`;
+    els.outline.style.height = `${r.height}px`;
+    els.outline.hidden = false;
+  }
+
+  function onPickDown(e) {
+    if (e.composedPath().includes(host)) return; // let clicks on our own shadow UI work normally
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+  }
+
+  function onPickClick(e) {
+    if (e.composedPath().includes(host)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    if (hoverEl) {
+      pickedEl = hoverEl;
+      els.outline.hidden = true;
+      openPalette(pickedEl);
+    }
+  }
+
+  function onPickKey(e) {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      exitPicker();
+      setStatus('Build cancelled.', '');
+    }
+  }
+
+  // ---- op palette + params ------------------------------------------------------
+
+  const OP_LABELS = [
+    ['hide', 'Hide'],
+    ['highlight', 'Highlight'],
+    ['sort', 'Sort'],
+    ['group', 'Group'],
+    ['annotate', 'Annotate'],
+    ['extract-to-panel', 'Extract to panel'],
+  ];
+  const CONDITION_OPS = ['equals', 'contains', 'lt', 'gt', 'exists', 'missing'];
+
+  function openPalette(el) {
+    const target = self.WebberRuleEngine.describeTarget(el);
+    const { group } = self.WebberRuleEngine.resolveTarget(target);
+    const sample = el.__webberFields
+      || (group && group.elements[0] && group.elements[0].__webberFields)
+      || {};
+    const fieldKeys = Object.keys(sample); // do NOT hardcode a field list
+
+    els.builder.textContent = '';
+
+    const targetLine = document.createElement('div');
+    targetLine.className = 'wb-target-line';
+    targetLine.textContent = `Target: ${target}`;
+    els.builder.appendChild(targetLine);
+
+    const opRow = document.createElement('div');
+    opRow.className = 'wb-op-row';
+    els.builder.appendChild(opRow);
+
+    paramsWrap = document.createElement('div');
+    paramsWrap.className = 'wb-params-wrap';
+    els.builder.appendChild(paramsWrap);
+
+    for (const [opId, label] of OP_LABELS) {
+      const btn = document.createElement('button');
+      btn.className = 'wb-op-btn';
+      btn.type = 'button';
+      btn.textContent = label;
+      btn.addEventListener('click', () => {
+        for (const b of opRow.children) b.classList.remove('wb-active');
+        btn.classList.add('wb-active');
+        selectOp(opId, label, target, fieldKeys);
+      });
+      opRow.appendChild(btn);
+    }
+  }
+
+  /** Render op-appropriate param controls + a ruleName input + a Confirm button. */
+  function selectOp(opId, label, target, fieldKeys) {
+    paramsWrap.textContent = '';
+    paramEls = {};
+
+    if ((opId === 'hide' || opId === 'highlight') && fieldKeys.length) {
+      const row = document.createElement('div');
+      row.className = 'wb-params';
+
+      const fieldLabel = document.createElement('label');
+      fieldLabel.textContent = 'if';
+      const fieldSelect = document.createElement('select');
+      const noneOpt = document.createElement('option');
+      noneOpt.value = '';
+      noneOpt.textContent = '(no condition)';
+      fieldSelect.appendChild(noneOpt);
+      for (const f of fieldKeys) {
+        const opt = document.createElement('option');
+        opt.value = f;
+        opt.textContent = f;
+        fieldSelect.appendChild(opt);
+      }
+      fieldLabel.appendChild(fieldSelect);
+      row.appendChild(fieldLabel);
+
+      const opLabel = document.createElement('label');
+      opLabel.textContent = 'is';
+      const opSelect = document.createElement('select');
+      for (const o of CONDITION_OPS) {
+        const opt = document.createElement('option');
+        opt.value = o;
+        opt.textContent = o;
+        opSelect.appendChild(opt);
+      }
+      opLabel.appendChild(opSelect);
+      row.appendChild(opLabel);
+
+      const valueLabel = document.createElement('label');
+      valueLabel.textContent = 'value';
+      const valueInput = document.createElement('input');
+      valueInput.type = 'text';
+      valueLabel.appendChild(valueInput);
+      row.appendChild(valueLabel);
+
+      // exists/missing need no value input
+      opSelect.addEventListener('change', () => {
+        valueInput.hidden = opSelect.value === 'exists' || opSelect.value === 'missing';
+      });
+
+      paramsWrap.appendChild(row);
+      paramEls.fieldSelect = fieldSelect;
+      paramEls.opSelect = opSelect;
+      paramEls.valueInput = valueInput;
+    } else if (opId === 'sort' && fieldKeys.length) {
+      const row = document.createElement('div');
+      row.className = 'wb-params';
+
+      const fieldLabel = document.createElement('label');
+      fieldLabel.textContent = 'by';
+      const fieldSelect = document.createElement('select');
+      for (const f of fieldKeys) {
+        const opt = document.createElement('option');
+        opt.value = f;
+        opt.textContent = f;
+        fieldSelect.appendChild(opt);
+      }
+      fieldLabel.appendChild(fieldSelect);
+      row.appendChild(fieldLabel);
+
+      const dirLabel = document.createElement('label');
+      dirLabel.textContent = 'direction';
+      const dirSelect = document.createElement('select');
+      for (const d of ['asc', 'desc']) {
+        const opt = document.createElement('option');
+        opt.value = d;
+        opt.textContent = d;
+        dirSelect.appendChild(opt);
+      }
+      dirLabel.appendChild(dirSelect);
+      row.appendChild(dirLabel);
+
+      paramsWrap.appendChild(row);
+      paramEls.fieldSelect = fieldSelect;
+      paramEls.directionSelect = dirSelect;
+    } else if (opId === 'group' && fieldKeys.length) {
+      const row = document.createElement('div');
+      row.className = 'wb-params';
+
+      const fieldLabel = document.createElement('label');
+      fieldLabel.textContent = 'by';
+      const fieldSelect = document.createElement('select');
+      for (const f of fieldKeys) {
+        const opt = document.createElement('option');
+        opt.value = f;
+        opt.textContent = f;
+        fieldSelect.appendChild(opt);
+      }
+      fieldLabel.appendChild(fieldSelect);
+      row.appendChild(fieldLabel);
+
+      paramsWrap.appendChild(row);
+      paramEls.fieldSelect = fieldSelect;
+    } else if (opId === 'annotate') {
+      const row = document.createElement('div');
+      row.className = 'wb-params';
+
+      const textLabel = document.createElement('label');
+      textLabel.textContent = 'text';
+      const textInput = document.createElement('input');
+      textInput.type = 'text';
+      textInput.placeholder = '●';
+      textLabel.appendChild(textInput);
+      row.appendChild(textLabel);
+
+      paramsWrap.appendChild(row);
+      paramEls.textInput = textInput;
+    } else if (opId === 'extract-to-panel' && fieldKeys.length) {
+      const row = document.createElement('div');
+      row.className = 'wb-params';
+
+      const checkboxes = [];
+      for (const f of fieldKeys) {
+        const cbLabel = document.createElement('label');
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = true;
+        cb.dataset.field = f;
+        cbLabel.appendChild(cb);
+        cbLabel.appendChild(document.createTextNode(f));
+        row.appendChild(cbLabel);
+        checkboxes.push(cb);
+      }
+      paramsWrap.appendChild(row);
+      paramEls.checkboxes = checkboxes;
+    }
+    // else: no fieldKeys for a field-dependent op (landmark/role/selector target) —
+    // controls are simply omitted; the op will resolve to 0 elements on Confirm,
+    // same as the equivalent typed command.
+
+    const nameRow = document.createElement('div');
+    nameRow.className = 'wb-name-row';
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.value = `${label} ${target}`;
+    nameRow.appendChild(nameInput);
+    paramsWrap.appendChild(nameRow);
+    paramEls.nameInput = nameInput;
+
+    const confirmBtn = document.createElement('button');
+    confirmBtn.className = 'wb-btn';
+    confirmBtn.type = 'button';
+    confirmBtn.textContent = 'Confirm';
+    confirmBtn.addEventListener('click', () => onConfirm(opId, label, target));
+    paramsWrap.appendChild(confirmBtn);
+  }
+
+  /** Read the current op's params from its live controls (see selectOp). */
+  function readParams(opId) {
+    switch (opId) {
+      case 'hide':
+      case 'highlight': {
+        if (!paramEls.fieldSelect) return {};
+        const field = paramEls.fieldSelect.value;
+        if (!field) return {};
+        const op = paramEls.opSelect.value;
+        if (op === 'exists' || op === 'missing') return { condition: { field, op } };
+        return { condition: { field, op, value: paramEls.valueInput.value } };
+      }
+      case 'sort':
+        if (!paramEls.fieldSelect) return {};
+        return { by: paramEls.fieldSelect.value, direction: paramEls.directionSelect.value };
+      case 'group':
+        if (!paramEls.fieldSelect) return {};
+        return { by: paramEls.fieldSelect.value };
+      case 'annotate':
+        return { text: (paramEls.textInput?.value || '').trim() || '●' };
+      case 'extract-to-panel':
+        return { fields: (paramEls.checkboxes || []).filter((cb) => cb.checked).map((cb) => cb.dataset.field) };
+      default:
+        return {};
+    }
+  }
+
+  async function onConfirm(opId, label, target) {
+    const params = readParams(opId);
+    const ruleName = paramEls.nameInput.value.trim() || `${label} ${target}`;
+    const transforms = [{ op: opId, target, params }];
+    const result = await self.WebberContent.applyBuiltRule(ruleName, transforms);
+    renderMode();
+    renderChips();
+    if (result.applied > 0) {
+      lastRuleName = ruleName;
+      setStatus(`Applied: ${ruleName}`, 'ok');
+      renderSaveButton();                                  // existing Save flow, unchanged
+    } else {
+      setStatus('Built the rule, but nothing on this page matched its target.', 'err');
+    }
+    exitPicker();                                          // clears builder UI + listeners; leaves status/actions intact
+  }
+
   // ---- submit -----------------------------------------------------------------
 
   async function submit(commandText) {
@@ -211,12 +553,7 @@ const WebberCommandBar = (() => {
         setStatus('Understood the command, but nothing on this page matched its targets.', 'err');
       }
     } catch (e) {
-      const msg = String(e.message || e);
-      if (/api key/i.test(msg)) {
-        setStatus('No API key set. Open the Webber side panel (toolbar icon) to add one.', 'err');
-      } else {
-        setStatus(`Error: ${msg}`, 'err');
-      }
+      setStatus(`Error: ${String(e.message || e)}`, 'err');
     } finally {
       els.input.disabled = false;
       els.input.focus();
@@ -235,6 +572,7 @@ const WebberCommandBar = (() => {
   }
 
   function hide() {
+    if (pickerActive) exitPicker();
     if (host) host.style.display = 'none';
     visible = false;
   }

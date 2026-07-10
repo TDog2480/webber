@@ -332,6 +332,62 @@ const WebberRuleEngine = (() => {
     return [...activeRules.keys()];
   }
 
+  // ---- reverse target resolution -----------------------------------------------
+  // The inverse of resolveTarget: given an element the user clicked, describe it
+  // with the same semantic strings resolveTarget knows how to match, so a picked
+  // element round-trips through the exact same targeting logic as a typed command.
+
+  function describeTarget(el) {
+    if (!(el instanceof Element)) return '';
+
+    // 1) member of a detected repeating group  -> resolveTarget step 1 ("repeating items")
+    const extraction = self.WebberExtractor.current();
+    for (const g of extraction.groups || []) {
+      if (g.elements.some((item) => item.contains(el))) return 'repeating items';
+    }
+
+    // 2) landmark regions, same selectors/keywords resolveTarget matches (steps 2).
+    //    Intentionally selects the WHOLE region, not just the clicked descendant
+    //    (e.g. clicking anything inside <header> targets "navigation", which
+    //    resolveTarget then matches to every nav/header on the page) — this
+    //    matches typed-command semantics exactly, by design.
+    if (el.closest('nav, header, [role="navigation"], [role="banner"]')) return 'navigation';
+    if (el.closest('aside, [role="complementary"]'))                     return 'sidebar';
+    if (el.closest('footer, [role="contentinfo"]'))                      return 'footer';
+    if (el.closest('article, [role="article"], main, [role="main"]'))    return 'article body';
+
+    // 3) explicit ARIA role -> resolveTarget step 3 ("role=<x>"); regex there is [a-z]+
+    const roleEl = el.closest('[role]');
+    if (roleEl) {
+      const role = (roleEl.getAttribute('role') || '').trim();
+      if (/^[a-z]+$/.test(role)) return `role=${role}`;
+    }
+
+    // 4) LAST RESORT: scoped CSS selector (id, else short tag+nth-of-type path).
+    //    Less durable than the semantic targets above — never a generated class name.
+    return cssPath(el);
+  }
+
+  function cssPath(el) {
+    if (el.id && document.querySelectorAll(`#${CSS.escape(el.id)}`).length === 1) {
+      return `#${CSS.escape(el.id)}`;
+    }
+    const parts = [];
+    let node = el;
+    while (node && node.nodeType === 1 && node !== document.body && parts.length < 4) {
+      if (node.id) { parts.unshift(`#${CSS.escape(node.id)}`); break; } // anchor on nearest id
+      let seg = node.tagName.toLowerCase();
+      const parent = node.parentElement;
+      if (parent) {
+        const sib = [...parent.children].filter((c) => c.tagName === node.tagName);
+        if (sib.length > 1) seg += `:nth-of-type(${sib.indexOf(node) + 1})`;
+      }
+      parts.unshift(seg);
+      node = parent;
+    }
+    return parts.join(' > ');
+  }
+
   // ---- MutationObserver: re-apply on SPA updates / infinite scroll -------------
 
   function ensureObserver() {
@@ -354,7 +410,7 @@ const WebberRuleEngine = (() => {
     observer.observe(document.body, { childList: true, subtree: true });
   }
 
-  return { apply, revert, getActiveRules, resolveTarget };
+  return { apply, revert, getActiveRules, resolveTarget, describeTarget };
 })();
 
 self.WebberRuleEngine = WebberRuleEngine;

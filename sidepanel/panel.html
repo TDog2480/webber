@@ -7,23 +7,8 @@
   <link rel="stylesheet" href="panel.css" />
 </head>
 <body>
-  <!-- Onboarding (shown when no API key is stored) -->
-  <section id="onboarding" hidden>
-    <div class="onboard-card">
-      <h1>Welcome to Webber</h1>
-      <p>Webber reshapes websites around your workflow. To translate commands
-        it needs an Anthropic API key, stored locally in your browser and used
-        only from the extension's background worker.</p>
-      <label for="api-key-input">Anthropic API key</label>
-      <input id="api-key-input" type="password" placeholder="sk-ant-..." autocomplete="off" />
-      <button id="api-key-save" class="btn">Save key</button>
-      <p class="hint">Get a key at console.anthropic.com → API keys.</p>
-      <p id="onboard-status" class="hint"></p>
-    </div>
-  </section>
-
   <!-- Main UI -->
-  <section id="main" hidden>
+  <section id="main">
     <header>
       <div class="brand">Webber</div>
       <nav class="tabs" role="tablist">
@@ -64,10 +49,6 @@
       <div id="history-empty" class="empty">No pages visited with Webber active yet.</div>
       <ul id="history-list"></ul>
     </div>
-
-    <footer>
-      <button id="change-key" class="btn btn-ghost">Change API key</button>
-    </footer>
   </section>
 
   <script src="../shared/schema.js"></script>
