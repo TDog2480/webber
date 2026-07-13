@@ -78,9 +78,13 @@ WebberSchema.keys = {
   installId: 'webber:installId',
   history: 'webber:history',
   board: 'webber:board',
+  sharedSecret: 'webber:sharedSecret',
+  backendUrl: 'webber:backendUrl',
   rulesForDomain: (domain) => `rules:${domain}`,
   rulesForCategory: (pageType) => `rules:category:${pageType}`,
 };
+
+WebberSchema.DEFAULT_BACKEND_URL = 'http://localhost:3000/translate';
 
 // Message types passed between content scripts, background, and side panel
 WebberSchema.msg = {

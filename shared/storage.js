@@ -5,6 +5,8 @@
  * Layout (chrome.storage.local):
  *   webber:installId             → string (anonymous per-install id)
  *   webber:history               → Array<HistoryEntry> (max 20, newest first)
+ *   webber:sharedSecret          → string (backend shared-secret header value)
+ *   webber:backendUrl            → string (backend /translate URL)
  *   rules:{domain}               → RuleSet[]
  *   rules:category:{pageType}    → RuleSet[]
  *
@@ -40,6 +42,22 @@ const WebberStorage = (() => {
       await localSet(K.installId, id);
     }
     return id;
+  }
+
+  // ---- backend config (shared secret + URL) -----------------------------
+
+  async function getSharedSecret() {
+    return localGet(K.sharedSecret, '');
+  }
+  async function setSharedSecret(secret) {
+    await localSet(K.sharedSecret, secret);
+  }
+  async function getBackendUrl() {
+    const v = await localGet(K.backendUrl, '');
+    return v || self.WebberSchema.DEFAULT_BACKEND_URL; // '' or unset → default
+  }
+  async function setBackendUrl(url) {
+    await localSet(K.backendUrl, url);
   }
 
   // ---- rules -----------------------------------------------------------
@@ -172,6 +190,7 @@ const WebberStorage = (() => {
 
   return {
     getInstallId, ensureInstallId,
+    getSharedSecret, setSharedSecret, getBackendUrl, setBackendUrl,
     getRulesFor, saveRule, deleteRule, incrementApplyCount, getAllRules,
     recordVisit, getHistory,
     getBoard, addBoardItems, removeBoardItem, clearBoard,

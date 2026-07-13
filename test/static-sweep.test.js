@@ -9,7 +9,9 @@
  *   machinery (outside .pipeline/ docs and this test suite itself, which
  *   legitimately names those dead identifiers in order to assert their
  *   absence elsewhere).
- * - Confirms BACKEND_URL exists in background/service-worker.js.
+ * - Confirms the backend URL + shared secret are resolved from storage (no
+ *   hardcoded BACKEND_URL const) and that shared/schema.js defines
+ *   DEFAULT_BACKEND_URL and the new storage keys.
  * - Confirms manifest.json is unchanged relative to git (untouched by the
  *   working tree diff), per the spec's "no manifest.json change" decision.
  * - Statically verifies content/rule-engine.js's describeTarget() priority
@@ -179,11 +181,20 @@ describe('static sweep: CEREBRAS_API_KEY is never logged or echoed to a client (
   });
 });
 
-describe('static sweep: BACKEND_URL wiring', () => {
-  test('background/service-worker.js defines/uses BACKEND_URL', () => {
+describe('static sweep: backend URL + shared-secret wiring', () => {
+  test('schema.js defines DEFAULT_BACKEND_URL and the new storage keys', () => {
+    const text = fs.readFileSync(path.join(REPO_ROOT, 'shared', 'schema.js'), 'utf8');
+    assert.match(text, /DEFAULT_BACKEND_URL\s*=\s*['"]http:\/\/localhost:3000\/translate['"]/);
+    assert.match(text, /sharedSecret:\s*['"]webber:sharedSecret['"]/);
+    assert.match(text, /backendUrl:\s*['"]webber:backendUrl['"]/);
+  });
+  test('service-worker.js resolves URL + secret from storage (no hardcoded URL const)', () => {
     const text = fs.readFileSync(path.join(REPO_ROOT, 'background', 'service-worker.js'), 'utf8');
-    assert.match(text, /const BACKEND_URL\s*=\s*['"]http:\/\/localhost:3000\/translate['"]/);
-    assert.match(text, /fetch\(BACKEND_URL/);
+    assert.match(text, /Storage\.getBackendUrl\(\)/);
+    assert.match(text, /Storage\.getSharedSecret\(\)/);
+    assert.match(text, /fetch\(\s*backendUrl/);
+    assert.match(text, /x-webber-secret/);
+    assert.doesNotMatch(text, /const BACKEND_URL\s*=\s*['"]http/);
   });
 });
 
@@ -259,7 +270,7 @@ describe('static sweep: describeTarget() priority order (no DOM available — so
     const body = bodyOf('describeTarget');
     const lastLandmarkIdx = body.indexOf('return \'article body\'');
     const roleIdx = body.indexOf(`el.closest('[role]')`);
-    const cssFallbackIdx = body.lastIndexOf('return cssPath(el);');
+    const cssFallbackIdx = body.lastIndexOf('cssPath(el)');
     assert.ok(lastLandmarkIdx >= 0 && roleIdx >= 0 && cssFallbackIdx >= 0,
       'expected to find the landmark, role=, and cssPath branches');
     assert.ok(lastLandmarkIdx < roleIdx, 'role= check must come after landmark checks');
@@ -283,8 +294,8 @@ describe('static sweep: describeTarget() priority order (no DOM available — so
 
   test('cssPath is the literal last-resort: describeTarget has no other "return" after it', () => {
     const body = bodyOf('describeTarget');
-    const cssFallbackIdx = body.lastIndexOf('return cssPath(el);');
-    const trailing = body.slice(cssFallbackIdx + 'return cssPath(el);'.length);
+    const cssFallbackIdx = body.lastIndexOf('cssPath(el)');
+    const trailing = body.slice(cssFallbackIdx + 'cssPath(el)'.length);
     assert.doesNotMatch(trailing.split('\n}')[0] || '', /return /,
       'cssPath(el) must be the final return in describeTarget');
   });

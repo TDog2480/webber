@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "engines": { "node": ">=18" },
-  "scripts": { "start": "node server.js" },
+  "scripts": { "start": "node server.js", "smoke": "node test/smoke-cerebras.js --run" },
   "dependencies": {
     "express": "^4.19.2",
     "dotenv": "^16.4.5"

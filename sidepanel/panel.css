@@ -164,3 +164,9 @@ tr:hover td { background: var(--bg-soft); }
 }
 #history-list .title { font-weight: 600; }
 #history-list .meta { color: var(--muted); font-size: 12px; }
+
+/* ---- settings ---- */
+
+.field-label { display:block; margin:10px 0 4px; color: var(--muted); font-size: 12px; }
+.settings-input { width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:8px; font: inherit; }
+.settings-actions { display:flex; align-items:center; gap:10px; margin-top:12px; }

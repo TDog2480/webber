@@ -10,9 +10,10 @@ importScripts('../shared/schema.js', '../shared/storage.js');
 const Schema = self.WebberSchema;
 const Storage = self.WebberStorage;
 
-// Webber backend endpoint. For local dev use http://localhost:3000/translate;
-// after deploying backend/, replace with https://<your-host>/translate.
-const BACKEND_URL = 'http://localhost:3000/translate';
+// The backend URL and shared secret are configured in the side panel's
+// Settings tab (persisted via WebberStorage), not hardcoded here. For local
+// dev the default is http://localhost:3000/translate — see
+// Schema.DEFAULT_BACKEND_URL.
 
 // ---- setup ------------------------------------------------------------------
 
@@ -58,16 +59,18 @@ function compactSchema(schema) {
 /**
  * Ask the Webber backend to translate a command into a transform spec.
  * The backend owns the Cerebras API key and the prompt/tool schema — this
- * is a thin client over POST {BACKEND_URL}.
+ * is a thin client over POST {backendUrl} (from storage; see getBackendUrl).
  */
 async function translateCommand({ command, schema, mode }) {
   const installId = await Storage.ensureInstallId();
+  const backendUrl = await Storage.getBackendUrl();
+  const sharedSecret = await Storage.getSharedSecret();
 
   let res;
   try {
-    res = await fetch(BACKEND_URL, {
+    res = await fetch(backendUrl, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-webber-secret': sharedSecret },
       body: JSON.stringify({ command, schema: compactSchema(schema), mode, installId }),
     });
   } catch (e) {
@@ -79,6 +82,7 @@ async function translateCommand({ command, schema, mode }) {
 
   if (!res.ok) {
     if (res.status === 429) throw new Error('Rate limited — try again in a moment.');
+    if (res.status === 401) throw new Error("Webber's backend rejected the request — set the shared secret in the side panel Settings tab.");
     throw new Error(data?.error || `Webber server error (${res.status}).`);
   }
   if (!data?.ok || !data.result || !Array.isArray(data.result.transforms)) {

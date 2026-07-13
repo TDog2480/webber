@@ -63,7 +63,22 @@ const WebberRuleEngine = (() => {
    * repeating-item group (needed for sort/reorder/group ops).
    */
   function resolveTarget(target, params = {}) {
-    const t = String(target || '').toLowerCase();
+    const raw = String(target || '');
+    const t = raw.toLowerCase();
+
+    // 0) explicit "selector:" prefix — resolve as a literal CSS selector and return
+    //    immediately, bypassing all keyword/tag heuristics. describeTarget emits this for its
+    //    last-resort cssPath so a scoped path (e.g. "#search-form > input") is never caught by
+    //    the bare-tag map below (where t.includes('form') would hit every <form> on the page).
+    if (t.startsWith('selector:')) {
+      const sel = raw.slice('selector:'.length).trim();   // slice from raw to preserve case
+      try {
+        return { elements: [...document.querySelectorAll(sel)], group: null };
+      } catch (e) {
+        return { elements: [], group: null };
+      }
+    }
+
     const extraction = self.WebberExtractor.current();
 
     // 1) repeating items (with optional condition filter)
@@ -363,9 +378,9 @@ const WebberRuleEngine = (() => {
       if (/^[a-z]+$/.test(role)) return `role=${role}`;
     }
 
-    // 4) LAST RESORT: scoped CSS selector (id, else short tag+nth-of-type path).
-    //    Less durable than the semantic targets above — never a generated class name.
-    return cssPath(el);
+    // 4) LAST RESORT: scoped CSS selector, prefixed so resolveTarget treats it as a literal
+    //    selector (step 0), not a semantic keyword. Never a generated class name.
+    return `selector:${cssPath(el)}`;
   }
 
   function cssPath(el) {

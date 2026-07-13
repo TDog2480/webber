@@ -12,28 +12,31 @@
  * below).
  *
  * IMPORTANT SCOPE NOTE — read before changing this file:
- * `CEREBRAS_URL` in backend/server.js is a hardcoded literal
- * (`https://api.cerebras.ai/v1/chat/completions`) with NO env-var override.
- * Per the test-writing brief, we do not modify server.js to add one, and we
- * do not build tests that depend on a live (non-stub) third-party call
- * (even though this sandbox happens to have outbound network access to
- * api.cerebras.ai — confirmed separately, not relied upon here). Every
- * server this file spawns therefore runs WITHOUT CEREBRAS_API_KEY set, so
- * every request that passes input validation + rate limiting deterministically
- * stops at the "missing key" 500 guard instead of calling fetch(). That
- * lets us fully exercise validation, rate limiting, the missing-key guard,
- * and health — the paths explicitly called out as reachable without a stub.
- * The 200-success / upstream-502 / garbage-tool-call paths are NOT
- * exercised here; see .pipeline/test-results.md "Not testable here".
+ * `CEREBRAS_URL` in backend/server.js now has an env-var override
+ * (`process.env.CEREBRAS_URL || '<the original literal>'`), so this suite
+ * stands up a local `node:http` stub mimicking `POST /v1/chat/completions`
+ * (see `startCerebrasStub` below) and points spawned servers at it via the
+ * `CEREBRAS_URL` env var. That makes the 200-success path and the various
+ * 502 (malformed-model-output) paths fully stub-testable here — a coverage
+ * gap in earlier versions of this file, which only ran servers WITHOUT
+ * CEREBRAS_API_KEY set and so could only reach the "missing key" 500 guard.
+ * The original no-key describe blocks below are kept as-is (still spawn
+ * without CEREBRAS_API_KEY, still assert the 500 guard + validation +
+ * rate-limiting paths); the new stub-backed describe blocks add the
+ * previously-missing 200/502 coverage plus the shared-secret auth gate,
+ * including proving (via the stub's hit counter) that rejected requests
+ * never reach the rate limiter or Cerebras.
  */
 
 const { test, describe, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { spawn } = require('node:child_process');
 const path = require('node:path');
+const http = require('node:http');
 
 const SERVER_PATH = path.join(__dirname, '..', 'server.js');
 const BACKEND_DIR = path.join(__dirname, '..');
+const SECRET = 'test-shared-secret';
 
 // Registry of every child process we spawn, so a global safety net can
 // clean up if an `after` hook is skipped because of a thrown assertion.
@@ -44,6 +47,27 @@ process.on('exit', () => {
   }
 });
 
+// ---- Cerebras upstream stub (node:http, no new dependency) ------------------
+
+function validToolCallBody() {
+  return { choices: [{ message: { tool_calls: [{ function: { arguments: JSON.stringify({
+    transforms: [{ op: 'hide', target: 'ads' }], mode: 'generic', ruleName: 'Stub rule', confidence: 0.9,
+  }) } }] } }] };
+}
+
+function startCerebrasStub() {
+  let hits = 0;
+  let respond = (res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(validToolCallBody())); };
+  const server = http.createServer((req, res) => { hits += 1; respond(res); });
+  return {
+    listen: () => new Promise((r) => server.listen(0, '127.0.0.1', r)),
+    close: () => new Promise((r) => server.close(r)),
+    url: () => `http://127.0.0.1:${server.address().port}/v1/chat/completions`,
+    setResponder: (fn) => { respond = fn; },
+    get hits() { return hits; },
+  };
+}
+
 function startServer(port, extraEnv = {}) {
   const env = { ...process.env };
   // Deliberately unset on every test server — see file header note.
@@ -52,6 +76,9 @@ function startServer(port, extraEnv = {}) {
   delete env.RATE_LIMIT_WINDOW_MS;
   delete env.CEREBRAS_MODEL;
   delete env.PORT;
+  // Every spawned server needs this or it exits at boot (see server.js).
+  // Set before Object.assign so extraEnv/callers can still override it.
+  env.WEBBER_SHARED_SECRET = SECRET;
   Object.assign(env, extraEnv, { PORT: String(port) });
 
   const child = spawn(process.execPath, [SERVER_PATH], {
@@ -107,7 +134,7 @@ async function stopServer(handle) {
 function postJSON(baseUrl, bodyObj, headers = {}) {
   return fetch(`${baseUrl}/translate`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...headers },
+    headers: { 'content-type': 'application/json', 'x-webber-secret': SECRET, ...headers },
     body: JSON.stringify(bodyObj),
   });
 }
@@ -290,4 +317,290 @@ describe('backend contract: rate limiting (per-installId, in-memory sliding wind
     const res = await postJSON(server.baseUrl, { command: 'hide ads', installId: 'rl-user-A' });
     assert.equal(res.status, 429);
   });
+});
+
+describe('backend contract: auth gate + Cerebras stub (200/502 paths, never-reaches-Cerebras proofs)', () => {
+  const PORT = 3403;
+  let server;
+  let stub;
+
+  before(async () => {
+    stub = startCerebrasStub();
+    await stub.listen();
+    server = startServer(PORT, { CEREBRAS_API_KEY: 'test-key', CEREBRAS_URL: stub.url() });
+    await waitForHealth(server.baseUrl);
+  });
+
+  after(async () => {
+    await stopServer(server);
+    await stub.close();
+  });
+
+  test('correct secret + fully valid body -> 200 {ok:true, result} with an array of transforms; stub hit count increments by exactly one', async () => {
+    stub.setResponder((res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(validToolCallBody()));
+    });
+    const before = stub.hits;
+    const res = await postJSON(server.baseUrl, { command: 'hide ads', installId: 'stub-user-ok' });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.ok, true);
+    assert.ok(Array.isArray(data.result.transforms));
+    assert.equal(stub.hits, before + 1);
+  });
+
+  test('wrong secret -> 401 {ok:false, error:"Unauthorized."}; stub is never reached', async () => {
+    const before = stub.hits;
+    const res = await postJSON(
+      server.baseUrl,
+      { command: 'hide ads', installId: 'stub-user-wrong-secret' },
+      { 'x-webber-secret': 'nope' },
+    );
+    assert.equal(res.status, 401);
+    assert.deepEqual(await res.json(), { ok: false, error: 'Unauthorized.' });
+    assert.equal(stub.hits, before);
+  });
+
+  test('missing secret -> 401; stub is never reached', async () => {
+    const before = stub.hits;
+    const res = await fetch(`${server.baseUrl}/translate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ command: 'hide ads', installId: 'stub-user-no-secret' }),
+    });
+    assert.equal(res.status, 401);
+    assert.deepEqual(await res.json(), { ok: false, error: 'Unauthorized.' });
+    assert.equal(stub.hits, before);
+  });
+
+  test('stub responds with no tool_calls -> 502 {ok:false, error:"Model did not produce transforms."}', async () => {
+    stub.setResponder((res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ choices: [{ message: {} }] }));
+    });
+    const res = await postJSON(server.baseUrl, { command: 'hide ads', installId: 'stub-user-no-tool-calls' });
+    assert.equal(res.status, 502);
+    assert.deepEqual(await res.json(), { ok: false, error: 'Model did not produce transforms.' });
+  });
+
+  test('stub responds with non-JSON tool-call arguments -> 502 {ok:false, error:"Model returned invalid JSON."}', async () => {
+    stub.setResponder((res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ choices: [{ message: { tool_calls: [{ function: { arguments: 'not json' } }] } }] }));
+    });
+    const res = await postJSON(server.baseUrl, { command: 'hide ads', installId: 'stub-user-bad-json' });
+    assert.equal(res.status, 502);
+    assert.deepEqual(await res.json(), { ok: false, error: 'Model returned invalid JSON.' });
+  });
+
+  test('stub responds with tool-call arguments missing a transforms array -> 502 {ok:false, error:"Malformed transform spec."}', async () => {
+    stub.setResponder((res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        choices: [{ message: { tool_calls: [{ function: { arguments: JSON.stringify({ mode: 'generic' }) } }] } }],
+      }));
+    });
+    const res = await postJSON(server.baseUrl, { command: 'hide ads', installId: 'stub-user-malformed' });
+    assert.equal(res.status, 502);
+    assert.deepEqual(await res.json(), { ok: false, error: 'Malformed transform spec.' });
+  });
+
+  test('stub responds with a non-2xx status -> 502 {ok:false}', async () => {
+    stub.setResponder((res) => { res.writeHead(500); res.end('{}'); });
+    const res = await postJSON(server.baseUrl, { command: 'hide ads', installId: 'stub-user-upstream-500' });
+    assert.equal(res.status, 502);
+    const data = await res.json();
+    assert.equal(data.ok, false);
+  });
+});
+
+describe('backend contract: 401s never touch the rate limiter or Cerebras', () => {
+  const PORT = 3404;
+  let server;
+  let stub;
+
+  before(async () => {
+    stub = startCerebrasStub();
+    await stub.listen();
+    stub.setResponder((res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(validToolCallBody()));
+    });
+    server = startServer(PORT, { CEREBRAS_API_KEY: 'test-key', CEREBRAS_URL: stub.url(), RATE_LIMIT_MAX: '1' });
+    await waitForHealth(server.baseUrl);
+  });
+
+  after(async () => {
+    await stopServer(server);
+    await stub.close();
+  });
+
+  test('5 wrong/missing-secret requests never consume the rate-limit bucket or reach Cerebras; one authed request then succeeds; a second authed request hits the limiter', async () => {
+    const before = stub.hits;
+
+    for (let i = 0; i < 3; i++) {
+      const res = await postJSON(
+        server.baseUrl,
+        { command: 'hide ads', installId: 'rl-secret-user' },
+        { 'x-webber-secret': 'nope' },
+      );
+      assert.equal(res.status, 401);
+    }
+    for (let i = 0; i < 2; i++) {
+      const res = await fetch(`${server.baseUrl}/translate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ command: 'hide ads', installId: 'rl-secret-user' }),
+      });
+      assert.equal(res.status, 401);
+    }
+    assert.equal(stub.hits, before, 'unauthenticated requests must never reach the Cerebras stub');
+
+    const okRes = await postJSON(server.baseUrl, { command: 'hide ads', installId: 'rl-secret-user' });
+    assert.equal(okRes.status, 200, 'the single authed request must succeed — the 401s must not have consumed the RATE_LIMIT_MAX=1 bucket');
+
+    const limitedRes = await postJSON(server.baseUrl, { command: 'hide ads', installId: 'rl-secret-user' });
+    assert.equal(limitedRes.status, 429, 'a second authed request must now be rate-limited (MAX=1 reached by the single authed request)');
+  });
+});
+
+describe('backend contract: adversarial auth-header edge cases (tester-added)', () => {
+  const PORT = 3406;
+  let server;
+  let stub;
+
+  before(async () => {
+    stub = startCerebrasStub();
+    await stub.listen();
+    stub.setResponder((res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(validToolCallBody()));
+    });
+    server = startServer(PORT, { CEREBRAS_API_KEY: 'test-key', CEREBRAS_URL: stub.url() });
+    await waitForHealth(server.baseUrl);
+  });
+
+  after(async () => {
+    await stopServer(server);
+    await stub.close();
+  });
+
+  test('a secret with leading/trailing whitespace around it IS accepted -- HTTP header values are OWS-trimmed by the transport, not by application code (verified below to be a wire-level property, not a leniency bug in server.js)', async () => {
+    // Surprising on first read, so documented explicitly: RFC 7230 section 3.2 defines
+    // leading/trailing "optional whitespace" (OWS) around a header FIELD VALUE as not
+    // part of the semantic value; compliant HTTP stacks strip it during parsing. Verified
+    // independently with a raw `node:net` socket (bypassing undici/fetch's own header
+    // handling entirely) against a locally spawned server: sending the literal bytes
+    // `x-webber-secret:   test-shared-secret   \r\n` still authenticates. So this is NOT
+    // something server.js's `req.get(...) !== process.env.WEBBER_SHARED_SECRET` comparison
+    // could "fix" by adding a manual trim -- Node's own http parser already trims OWS
+    // before the header value ever reaches Express. Not a security concern: only
+    // insignificant surrounding whitespace is ignored, the secret's actual content still
+    // has to match exactly.
+    const before = stub.hits;
+    const res = await postJSON(
+      server.baseUrl,
+      { command: 'hide ads', installId: 'ws-user' },
+      { 'x-webber-secret': `  ${SECRET}  ` },
+    );
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).ok, true);
+    assert.equal(stub.hits, before + 1);
+  });
+
+  test('a secret that only matches after trimming BUT differs in its actual (non-whitespace) content is still rejected (401)', async () => {
+    const before = stub.hits;
+    const res = await postJSON(
+      server.baseUrl,
+      { command: 'hide ads', installId: 'ws-user-wrong-content' },
+      { 'x-webber-secret': `  ${SECRET}-nope  ` },
+    );
+    assert.equal(res.status, 401);
+    assert.deepEqual(await res.json(), { ok: false, error: 'Unauthorized.' });
+    assert.equal(stub.hits, before);
+  });
+
+  test('empty-string header value -> 401 (sent header, empty value)', async () => {
+    const res = await postJSON(
+      server.baseUrl,
+      { command: 'hide ads', installId: 'empty-secret-user' },
+      { 'x-webber-secret': '' },
+    );
+    assert.equal(res.status, 401);
+    assert.deepEqual(await res.json(), { ok: false, error: 'Unauthorized.' });
+  });
+
+  test('fully missing header (never sent at all) -> 401, identical shape to the empty-string case', async () => {
+    const res = await fetch(`${server.baseUrl}/translate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ command: 'hide ads', installId: 'missing-secret-user' }),
+    });
+    assert.equal(res.status, 401);
+    assert.deepEqual(await res.json(), { ok: false, error: 'Unauthorized.' });
+  });
+
+  test('header name is case-insensitive: "X-Webber-Secret" (mixed case) with the correct value is accepted', async () => {
+    const before = stub.hits;
+    const res = await fetch(`${server.baseUrl}/translate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'X-Webber-Secret': SECRET },
+      body: JSON.stringify({ command: 'hide ads', installId: 'case-user-1' }),
+    });
+    assert.equal(res.status, 200);
+    const data = await res.json();
+    assert.equal(data.ok, true);
+    assert.equal(stub.hits, before + 1);
+  });
+
+  test('header name is case-insensitive: "X-WEBBER-SECRET" (all caps) with the correct value is accepted', async () => {
+    const res = await fetch(`${server.baseUrl}/translate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'X-WEBBER-SECRET': SECRET },
+      body: JSON.stringify({ command: 'hide ads', installId: 'case-user-2' }),
+    });
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).ok, true);
+  });
+
+  test('GET /health needs no auth header, and is unaffected even by a WRONG secret header being present', async () => {
+    const res = await fetch(`${server.baseUrl}/health`, {
+      headers: { 'x-webber-secret': 'totally-wrong-value' },
+    });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { ok: true });
+  });
+
+  test('the configured secret (and a wrong guess sent alongside it) never appears in any response body across a mixed 401/200/502 batch, nor in the child\'s combined stdout+stderr', async () => {
+    await postJSON(server.baseUrl, { command: 'hide ads', installId: 'leak-a' }, { 'x-webber-secret': 'totally-wrong-value' });
+    await fetch(`${server.baseUrl}/translate`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+
+    stub.setResponder((res) => { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(validToolCallBody())); });
+    const okRes = await postJSON(server.baseUrl, { command: 'hide ads', installId: 'leak-b' });
+    const okText = await okRes.text();
+
+    stub.setResponder((res) => { res.writeHead(500); res.end('{}'); });
+    const errRes = await postJSON(server.baseUrl, { command: 'hide ads', installId: 'leak-c' });
+    const errText = await errRes.text();
+
+    const secretPattern = new RegExp(SECRET.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    assert.doesNotMatch(okText, secretPattern);
+    assert.doesNotMatch(errText, secretPattern);
+    assert.doesNotMatch(server.stdout, secretPattern);
+    assert.doesNotMatch(server.stderr, secretPattern);
+    assert.doesNotMatch(server.stdout + server.stderr, /totally-wrong-value/);
+  });
+});
+
+test('server refuses to start (non-zero exit) when WEBBER_SHARED_SECRET is unset', async () => {
+  const env = { ...process.env, PORT: '3405' };
+  delete env.WEBBER_SHARED_SECRET;
+  const child = spawn(process.execPath, [SERVER_PATH], { cwd: BACKEND_DIR, env, stdio: ['ignore', 'pipe', 'pipe'] });
+  liveChildren.add(child);
+  let stderr = ''; child.stderr.on('data', (d) => { stderr += d.toString(); });
+  const code = await new Promise((resolve) => child.once('exit', (c) => resolve(c)));
+  liveChildren.delete(child);
+  assert.notEqual(code, 0);
+  assert.match(stderr, /WEBBER_SHARED_SECRET is not set/);
 });

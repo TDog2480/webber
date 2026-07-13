@@ -64,6 +64,16 @@ describe('shared/schema.js', () => {
     // loaded schema object (keys, MODE_CONFIGS, msg, etc.)
     assert.doesNotMatch(JSON.stringify(sandboxSelf.WebberSchema), /apiKey/i);
   });
+
+  test('exposes the new shared-secret / backend-URL keys and DEFAULT_BACKEND_URL', () => {
+    const sandboxSelf = {};
+    global.self = sandboxSelf;
+    freshRequire(SCHEMA_PATH);
+
+    assert.equal(sandboxSelf.WebberSchema.keys.sharedSecret, 'webber:sharedSecret');
+    assert.equal(sandboxSelf.WebberSchema.keys.backendUrl, 'webber:backendUrl');
+    assert.equal(sandboxSelf.WebberSchema.DEFAULT_BACKEND_URL, 'http://localhost:3000/translate');
+  });
 });
 
 describe('shared/storage.js', () => {
@@ -130,5 +140,38 @@ describe('shared/storage.js', () => {
     ]) {
       assert.equal(typeof WebberStorage[fn], 'function', `expected WebberStorage.${fn} to remain a function`);
     }
+  });
+
+  test('getSharedSecret()/setSharedSecret() default to \'\' and round-trip through chrome.storage.local', async () => {
+    const sandboxSelf = {};
+    global.self = sandboxSelf;
+    freshRequire(SCHEMA_PATH);
+    global.chrome = makeChromeStorageStub();
+    freshRequire(STORAGE_PATH);
+
+    const WebberStorage = sandboxSelf.WebberStorage;
+    assert.equal(await WebberStorage.getSharedSecret(), '');
+
+    await WebberStorage.setSharedSecret('s3cret');
+    assert.equal(await WebberStorage.getSharedSecret(), 's3cret');
+    assert.equal(global.chrome._store.get('webber:sharedSecret'), 's3cret');
+  });
+
+  test('getBackendUrl()/setBackendUrl() default to DEFAULT_BACKEND_URL, persist a real value, and treat \'\' as "use the default"', async () => {
+    const sandboxSelf = {};
+    global.self = sandboxSelf;
+    freshRequire(SCHEMA_PATH);
+    global.chrome = makeChromeStorageStub();
+    freshRequire(STORAGE_PATH);
+
+    const WebberStorage = sandboxSelf.WebberStorage;
+    assert.equal(await WebberStorage.getBackendUrl(), sandboxSelf.WebberSchema.DEFAULT_BACKEND_URL);
+
+    await WebberStorage.setBackendUrl('https://api.example.com/translate');
+    assert.equal(await WebberStorage.getBackendUrl(), 'https://api.example.com/translate');
+    assert.equal(global.chrome._store.get('webber:backendUrl'), 'https://api.example.com/translate');
+
+    await WebberStorage.setBackendUrl('');
+    assert.equal(await WebberStorage.getBackendUrl(), sandboxSelf.WebberSchema.DEFAULT_BACKEND_URL);
   });
 });

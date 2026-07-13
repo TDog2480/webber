@@ -10,7 +10,7 @@ const express = require('express');
 
 // ---- constants / env --------------------------------------------------------
 
-const CEREBRAS_URL = 'https://api.cerebras.ai/v1/chat/completions';
+const CEREBRAS_URL = process.env.CEREBRAS_URL || 'https://api.cerebras.ai/v1/chat/completions';
 const CEREBRAS_MODEL = process.env.CEREBRAS_MODEL || 'gpt-oss-120b';
 const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX || 60);
 const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 3600000);
@@ -18,6 +18,11 @@ const PORT = Number(process.env.PORT || 3000);
 
 if (!process.env.CEREBRAS_API_KEY) {
   console.error('[Webber backend] CEREBRAS_API_KEY is not set — /translate will return 500 until it is configured.');
+}
+
+if (!process.env.WEBBER_SHARED_SECRET) {
+  console.error('[Webber backend] WEBBER_SHARED_SECRET is not set — refusing to start (every /translate would be unauthenticated).');
+  process.exit(1);
 }
 
 // ---- AI rule translator -----------------------------------------------------
@@ -137,6 +142,14 @@ const app = express();
 app.use(express.json({ limit: '256kb' }));
 
 app.post('/translate', async (req, res) => {
+  // Shared-secret gate. Runs before rate-limit bookkeeping or any upstream call so
+  // rejected requests can't consume a real installId's rate budget.
+  // NOTE: a shared secret is a weak private-v1 stopgap, not real access control — anyone
+  // who unpacks the extension can read it. Durable fix later: per-user auth. See README.
+  if (req.get('x-webber-secret') !== process.env.WEBBER_SHARED_SECRET) {
+    return res.status(401).json({ ok: false, error: 'Unauthorized.' });
+  }
+
   const { command, schema, mode, installId } = req.body || {};
 
   if (typeof command !== 'string' || !command.trim()) {

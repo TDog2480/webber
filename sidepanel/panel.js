@@ -15,6 +15,7 @@
   function initViews() {
     $('main').hidden = false;
     refreshAll();
+    loadSettings();
   }
 
   // ---- tabs -----------------------------------------------------------------
@@ -234,6 +235,23 @@
       list.appendChild(li);
     }
   }
+
+  // ---- settings ---------------------------------------------------------------
+
+  async function loadSettings() {
+    $('settings-backend-url').value = await Storage.getBackendUrl();
+    $('settings-shared-secret').value = await Storage.getSharedSecret();
+  }
+
+  $('settings-save').addEventListener('click', async () => {
+    const url = $('settings-backend-url').value.trim() || Schema.DEFAULT_BACKEND_URL;
+    const secret = $('settings-shared-secret').value; // stored as-is (no trim)
+    await Storage.setBackendUrl(url);
+    await Storage.setSharedSecret(secret);
+    const status = $('settings-status');
+    status.textContent = 'Saved.';
+    setTimeout(() => { status.textContent = ''; }, 2000);
+  });
 
   // ---- live updates -----------------------------------------------------------------
 
