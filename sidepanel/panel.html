@@ -7,29 +7,15 @@
   <link rel="stylesheet" href="panel.css" />
 </head>
 <body>
-  <!-- Onboarding (shown when no API key is stored) -->
-  <section id="onboarding" hidden>
-    <div class="onboard-card">
-      <h1>Welcome to Webber</h1>
-      <p>Webber reshapes websites around your workflow. To translate commands
-        it needs an Anthropic API key, stored locally in your browser and used
-        only from the extension's background worker.</p>
-      <label for="api-key-input">Anthropic API key</label>
-      <input id="api-key-input" type="password" placeholder="sk-ant-..." autocomplete="off" />
-      <button id="api-key-save" class="btn">Save key</button>
-      <p class="hint">Get a key at console.anthropic.com → API keys.</p>
-      <p id="onboard-status" class="hint"></p>
-    </div>
-  </section>
-
   <!-- Main UI -->
-  <section id="main" hidden>
+  <section id="main">
     <header>
       <div class="brand">Webber</div>
       <nav class="tabs" role="tablist">
         <button class="tab active" data-tab="board" role="tab">Board</button>
         <button class="tab" data-tab="rules" role="tab">Rules</button>
         <button class="tab" data-tab="history" role="tab">History</button>
+        <button class="tab" data-tab="settings" role="tab">Settings</button>
       </nav>
     </header>
 
@@ -65,9 +51,24 @@
       <ul id="history-list"></ul>
     </div>
 
-    <footer>
-      <button id="change-key" class="btn btn-ghost">Change API key</button>
-    </footer>
+    <div id="tab-settings" class="tab-panel" hidden>
+      <label class="field-label" for="settings-backend-url">Backend URL</label>
+      <input id="settings-backend-url" class="settings-input" type="text"
+        placeholder="http://localhost:3000/translate" spellcheck="false" />
+      <label class="field-label" for="settings-shared-secret">Shared secret</label>
+      <input id="settings-shared-secret" class="settings-input" type="password"
+        placeholder="shared secret" spellcheck="false" />
+      <div class="settings-actions">
+        <button id="settings-save" class="btn">Save settings</button>
+        <span id="settings-status" class="muted"></span>
+      </div>
+      <p class="empty">
+        A shared secret is a small stopgap for a private v1, not real access control — anyone who
+        unpacks the extension can read it. Set the Backend URL to your deployed
+        <code>https://&lt;host&gt;/translate</code> and the Shared secret to match the backend's
+        <code>WEBBER_SHARED_SECRET</code>.
+      </p>
+    </div>
   </section>
 
   <script src="../shared/schema.js"></script>

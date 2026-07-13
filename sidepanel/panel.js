@@ -12,30 +12,11 @@
 
   let boardSort = { column: null, direction: 'asc' };
 
-  // ---- onboarding / main switch ------------------------------------------
-
-  async function initViews() {
-    const key = await Storage.getApiKey();
-    $('onboarding').hidden = !!key;
-    $('main').hidden = !key;
-    if (key) refreshAll();
+  function initViews() {
+    $('main').hidden = false;
+    refreshAll();
+    loadSettings();
   }
-
-  $('api-key-save').addEventListener('click', async () => {
-    const value = $('api-key-input').value.trim();
-    if (!value) {
-      $('onboard-status').textContent = 'Enter a key first.';
-      return;
-    }
-    await Storage.setApiKey(value);
-    $('api-key-input').value = '';
-    initViews();
-  });
-
-  $('change-key').addEventListener('click', async () => {
-    $('main').hidden = true;
-    $('onboarding').hidden = false;
-  });
 
   // ---- tabs -----------------------------------------------------------------
 
@@ -254,6 +235,23 @@
       list.appendChild(li);
     }
   }
+
+  // ---- settings ---------------------------------------------------------------
+
+  async function loadSettings() {
+    $('settings-backend-url').value = await Storage.getBackendUrl();
+    $('settings-shared-secret').value = await Storage.getSharedSecret();
+  }
+
+  $('settings-save').addEventListener('click', async () => {
+    const url = $('settings-backend-url').value.trim() || Schema.DEFAULT_BACKEND_URL;
+    const secret = $('settings-shared-secret').value; // stored as-is (no trim)
+    await Storage.setBackendUrl(url);
+    await Storage.setSharedSecret(secret);
+    const status = $('settings-status');
+    status.textContent = 'Saved.';
+    setTimeout(() => { status.textContent = ''; }, 2000);
+  });
 
   // ---- live updates -----------------------------------------------------------------
 

@@ -143,3 +143,38 @@
   margin-right: 6px;
 }
 @keyframes wb-spin { to { transform: rotate(360deg); } }
+
+.wb-build {
+  all: unset; cursor: pointer; flex: none;
+  font: 600 11px/1 system-ui, sans-serif;
+  color: #c7c8ff; background: #1c1c2e;
+  border: 1px solid #3d3d6b; border-radius: 8px; padding: 6px 10px;
+}
+.wb-build:hover { background: #26264a; }
+.wb-build.wb-active { background: #6366f1; color: #fff; border-color: #6366f1; }
+
+.wb-pick-outline {
+  position: fixed; z-index: 2147483646; pointer-events: none;
+  border: 2px dashed #f59e0b; background: rgba(245, 158, 11, 0.08);
+  border-radius: 4px; box-sizing: border-box;
+}
+.wb-pick-outline[hidden] { display: none; }
+
+.wb-builder { margin-top: 8px; }
+.wb-builder:empty { display: none; }
+.wb-op-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.wb-op-btn {
+  all: unset; cursor: pointer;
+  font: 600 11px/1 system-ui, sans-serif;
+  color: #e0e0ff; background: #1c1c2e;
+  border: 1px solid #3d3d6b; border-radius: 8px; padding: 6px 10px;
+}
+.wb-op-btn:hover, .wb-op-btn.wb-active { background: #6366f1; color: #fff; border-color: #6366f1; }
+.wb-params { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
+.wb-params label { color: #c7c8ff; font-size: 11px; display: inline-flex; gap: 4px; align-items: center; }
+.wb-params select, .wb-params input {
+  background: #161616; color: #f5f5f5; border: 1px solid #3d3d6b;
+  border-radius: 6px; padding: 5px 6px; font: 400 12px/1 system-ui, sans-serif;
+}
+.wb-name-row { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
+.wb-name-row input { flex: 1; }

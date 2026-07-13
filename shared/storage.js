@@ -3,8 +3,10 @@
  * Works in content scripts, the side panel, and the background worker.
  *
  * Layout (chrome.storage.local):
- *   webber:apiKey                → string
+ *   webber:installId             → string (anonymous per-install id)
  *   webber:history               → Array<HistoryEntry> (max 20, newest first)
+ *   webber:sharedSecret          → string (backend shared-secret header value)
+ *   webber:backendUrl            → string (backend /translate URL)
  *   rules:{domain}               → RuleSet[]
  *   rules:category:{pageType}    → RuleSet[]
  *
@@ -26,14 +28,36 @@ const WebberStorage = (() => {
     await chrome.storage.local.set({ [key]: value });
   }
 
-  // ---- API key ---------------------------------------------------------
+  // ---- install id ------------------------------------------------------
 
-  async function getApiKey() {
-    return localGet(K.apiKey, null);
+  async function getInstallId() {
+    return localGet(K.installId, null);
   }
 
-  async function setApiKey(key) {
-    await localSet(K.apiKey, key);
+  /** Returns the stored installId, generating+persisting one on first call. */
+  async function ensureInstallId() {
+    let id = await localGet(K.installId, null);
+    if (!id) {
+      id = crypto.randomUUID();
+      await localSet(K.installId, id);
+    }
+    return id;
+  }
+
+  // ---- backend config (shared secret + URL) -----------------------------
+
+  async function getSharedSecret() {
+    return localGet(K.sharedSecret, '');
+  }
+  async function setSharedSecret(secret) {
+    await localSet(K.sharedSecret, secret);
+  }
+  async function getBackendUrl() {
+    const v = await localGet(K.backendUrl, '');
+    return v || self.WebberSchema.DEFAULT_BACKEND_URL; // '' or unset → default
+  }
+  async function setBackendUrl(url) {
+    await localSet(K.backendUrl, url);
   }
 
   // ---- rules -----------------------------------------------------------
@@ -165,7 +189,8 @@ const WebberStorage = (() => {
   }
 
   return {
-    getApiKey, setApiKey,
+    getInstallId, ensureInstallId,
+    getSharedSecret, setSharedSecret, getBackendUrl, setBackendUrl,
     getRulesFor, saveRule, deleteRule, incrementApplyCount, getAllRules,
     recordVisit, getHistory,
     getBoard, addBoardItems, removeBoardItem, clearBoard,

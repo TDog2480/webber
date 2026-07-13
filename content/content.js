@@ -112,6 +112,29 @@
     return { ...spec, ...result };
   }
 
+  /**
+   * Apply a single rule built via the command bar's picker/palette (no LLM
+   * call). Same shape and storage convention as an AI-authored rule from
+   * runCommand — save/replay must not branch on authorship.
+   * Returns { applied, details, ruleName, mode }.
+   */
+  function applyBuiltRule(ruleName, transforms) {
+    const result = Engine.apply(ruleName, transforms);
+    pageRules.set(ruleName, {
+      storageKey: null, // unsaved (session-only) until the user saves — same convention
+      rule: {
+        ruleName,
+        domain: pageSchema?.domain || location.hostname,
+        pageType: pageSchema?.pageType || 'unknown',
+        transforms,
+        mode: currentMode,
+        createdAt: new Date().toISOString(),
+        applyCount: 1,
+      },
+    });
+    return { ...result, ruleName, mode: currentMode }; // { applied, details, ruleName, mode }
+  }
+
   /** Apply a mode's default transforms without an LLM call. */
   function applyModeDefaults(mode) {
     currentMode = mode;
@@ -169,7 +192,7 @@
   }
 
   // expose to the command bar script
-  self.WebberContent = { runCommand, applyModeDefaults, saveRule, removeRule, getState };
+  self.WebberContent = { runCommand, applyModeDefaults, applyBuiltRule, saveRule, removeRule, getState };
 
   // ---- messages from the background worker --------------------------------------
 
